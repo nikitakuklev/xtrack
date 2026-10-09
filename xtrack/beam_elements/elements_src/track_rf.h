@@ -108,10 +108,18 @@ void track_rf_kick_single_particle(
             zim = zim * x + zre * y;
             zre = zret;
 
-            dptr += sn * (bal_n_kk * zre) - ss * (bal_s_kk * zim);
+            // Energy kick = -d/dtau of the potential whose x,y gradient is the
+            // transverse kick, Re/Im[(x+iy)^(kk+1)]/(kk+1)! (Panofsky-Wenzel).
+            // zre, zim hold (x+iy)^(kk+1) and bal_*_kk carries 1/kk!.
+            dptr += (sn * (bal_n_kk * zre) - ss * (bal_s_kk * zim)) / (kk + 1);
         }
 
-        rfmultipole_energy_kick = - q * ( (frequency * ( 2.0 * PI / C_LIGHT) * p0c) * dptr );
+        // knl/ksl are normalized to the reference rigidity, which already
+        // contains q0: the recoil takes the same charge factor as the
+        // transverse kick (chi = charge_ratio/mass_ratio; add_to_energy divides
+        // by mass_ratio).
+        double const charge_ratio = LocalParticle_get_charge_ratio(part);
+        rfmultipole_energy_kick = - charge_ratio * ( (frequency * ( 2.0 * PI / C_LIGHT) * p0c) * dptr );
         double const chi    = LocalParticle_get_chi(part);
 
         double const px_kick = - chi * dpx;

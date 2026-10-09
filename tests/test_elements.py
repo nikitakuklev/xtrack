@@ -3,6 +3,7 @@
 # Copyright (c) CERN, 2021.                 #
 # ######################################### #
 
+import math
 import numpy as np
 import pytest
 import pathlib
@@ -301,6 +302,68 @@ def test_rfmultipole_phase_is_summed_with_lag_in_tracking():
     line_lag.track(p_lag)
 
     xo.assert_allclose(p_phase.delta, p_lag.delta, rtol=1e-14, atol=1e-14)
+
+
+@for_all_test_contexts
+def test_rfmultipole_kicks_derive_from_one_potential(test_context):
+    # With C_n = knl[n] cos(phase_n[n] - k tau) + i ksl[n] cos(phase_s[n] - k tau)
+    # and w = x + iy, the transverse kick (dpx, dpy) = -chi (dU/dx, dU/dy) of
+    #     U = sum_n Re[C_n w^(n+1)] / (n+1)!,
+    # so the thin map is symplectic only if dpzeta = -chi dU/dzeta.
+    knl = np.array([0.7, -0.4, 5., 30., 200.])
+    ksl = np.array([-0.4, 0.3, -4., 20., -100.])
+    phase_n = np.array([0.6, 1.1, 1.7, 2.5, 3.1])
+    phase_s = np.array([1.9, 0.4, 1.2, 2.0, 2.8])
+    frequency = 400e6
+    x, y, zeta = 0.3, -0.2, 0.05
+
+    rfm = xt.RFMultipole(frequency=frequency, knl=knl, ksl=ksl,
+                         phase_n=phase_n, phase_s=phase_s)
+    line = xt.Line(elements=[rfm])
+    line.build_tracker(_context=test_context)
+    p0 = xt.Particles(p0c=1e9, x=x, y=y, zeta=zeta, delta=0,
+                      q0=2, charge_ratio=1.5, chi=0.6)
+    particles = p0.copy(_context=test_context)
+    line.track(particles)
+
+    k = 2 * np.pi * frequency / cst.c
+    chi = p0.chi[0]
+    beta0 = p0.beta0[0]
+    tau = zeta / beta0
+    w = x + 1j * y
+    n = np.arange(len(knl))
+    fact = np.array([math.factorial(ii) for ii in n], dtype=float)
+    c_kick = knl * np.cos(phase_n - k * tau) + 1j * ksl * np.cos(phase_s - k * tau)
+    s_kick = knl * np.sin(phase_n - k * tau) + 1j * ksl * np.sin(phase_s - k * tau)
+    expected_px = -chi * np.sum(c_kick * w**n / fact).real
+    expected_py = chi * np.sum(c_kick * w**n / fact).imag
+    expected_pzeta = (-chi * k / beta0
+                      * np.sum(s_kick * w**(n + 1) / (fact * (n + 1))).real)
+
+    xo.assert_allclose(particles.px, expected_px, rtol=1e-12, atol=0)
+    xo.assert_allclose(particles.py, expected_py, rtol=1e-12, atol=0)
+    xo.assert_allclose(particles.pzeta, expected_pzeta, rtol=1e-12, atol=0)
+
+
+@for_all_test_contexts
+def test_rfmultipole_is_symplectic(test_context):
+    from xtrack.linear_normal_form import S
+    rfm = xt.RFMultipole(
+        frequency=400e6,
+        voltage=1e6,
+        phase=np.pi / 6,
+        knl=[1e-3, 0.7, 5., 30., 200.],
+        ksl=[-2e-3, 0.3, -4., 20., -100.],
+        phase_n=[0.1, 0.6, 1.2, 2.0, 2.8],
+        phase_s=[0.4, 1.1, 1.7, 2.5, 3.1],
+    )
+    particle = xt.Particles(
+        p0c=1e9, x=2e-2, px=1e-4, y=-1.5e-2, py=2e-4, zeta=0.05, delta=1e-3,
+        q0=2, charge_ratio=1.5, chi=0.6)
+    line = xt.Line(elements=[rfm])
+    line.build_tracker(_context=test_context)
+    R = line.get_R_matrix(particle_on_co=particle)['R_matrix']
+    assert np.max(np.abs(R.T @ S @ R - S)) < 1e-8
 
 
 @pytest.mark.filterwarnings('ignore::FutureWarning')
