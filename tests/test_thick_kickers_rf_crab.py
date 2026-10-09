@@ -2190,3 +2190,39 @@ def test_crab_dispersion_hlllhc_b1_and_b2(tmp_path):
     xo.assert_allclose(tw_b4_mad["dy_zeta", "ip5"], -190e-6, rtol=3e-3)
     xo.assert_allclose(tw_b4_b1b2["dy_zeta", "ip5"], -190e-6, rtol=3e-3)
     xo.assert_allclose(tw_b4_b4["dy_zeta", "ip5"], -190e-6, rtol=3e-3)
+
+
+def test_crabcavity_is_symplectic():
+    from xtrack.linear_normal_form import S
+    line = xt.Line(elements=[xt.CrabCavity(
+        frequency=400e6, crab_voltage=1e6, phase=1.0)])
+    line.build_tracker()
+    particle = xt.Particles(
+        p0c=1e9, x=2e-2, px=1e-4, y=-1.5e-2, py=2e-4, zeta=0.05, delta=1e-3,
+        q0=2, charge_ratio=1.5, chi=0.6)
+    R = line.get_R_matrix(particle_on_co=particle)['R_matrix']
+    assert np.max(np.abs(R.T @ S @ R - S)) < 1e-8
+
+
+def test_crabcavity_ion_vs_madx():
+    # MAD-X's crab cavity has no charge factor: VOLT and crab_voltage are
+    # the deflecting voltage seen by the reference particle.
+    madx = Madx(stdout=False)
+    madx.input("""
+    cc: crabcavity, l=0, volt=4, freq=400, lag=0.3;
+    ss: sequence, l=1;
+    cc1: cc, at=0.5;
+    endsequence;
+    beam, particle=ion, charge=82, mass=193.6872729, pc=500;
+    use, sequence=ss;
+    twiss, betx=1, bety=1, x=1e-2;
+    """)
+    tw_mad = xt.Table(madx.table.twiss, _copy_cols=True)
+
+    beam = madx.sequence.ss.beam
+    line = xt.Line.from_madx_sequence(madx.sequence.ss)
+    line.particle_ref = xt.Particles(
+        mass0=beam.mass * 1e9, q0=beam.charge, gamma0=beam.gamma)
+    tw = line.twiss(betx=1, bety=1, x=1e-2)
+    xo.assert_allclose(tw.px[-1], tw_mad.px[-1], rtol=1e-12, atol=0)
+    xo.assert_allclose(tw.ptau[-1], tw_mad.pt[-1], rtol=1e-12, atol=0)

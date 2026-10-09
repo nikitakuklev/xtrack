@@ -136,6 +136,8 @@ void track_rf_kick_single_particle(
         double const pn_kk = phase0 + DEG2RAD * (transverse_lag + 90.)
                            + transverse_phase
                            - (2.0 * PI) / C_LIGHT * frequency * tau;
+        // crab_voltage is the deflecting voltage seen by the reference
+        // particle (|q0| times the cavity voltage), as the MAD-X VOLT.
         double const k0l = transverse_voltage / p0c;
 
         double bal_n_kk = k0l;
@@ -152,7 +154,10 @@ void track_rf_kick_single_particle(
 
         dptr += sn * (bal_n_kk * zre);
 
-        rfmultipole_energy_kick += - q * ( (frequency * ( 2.0 * PI / C_LIGHT) * p0c) * dptr );
+        // Same charge factor as the transverse kick (chi = charge_ratio/mass_ratio;
+        // add_to_energy divides by mass_ratio).
+        double const charge_ratio = LocalParticle_get_charge_ratio(part);
+        rfmultipole_energy_kick += - charge_ratio * ( (frequency * ( 2.0 * PI / C_LIGHT) * p0c) * dptr );
         double const chi    = LocalParticle_get_chi(part);
 
         double const px_kick = - chi * dpx;
